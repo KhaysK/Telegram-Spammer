@@ -74,6 +74,8 @@ def change_default():
         else:
             code = input(GREEN_COLOR + f'[+] Изменить {api_names[profile_to_change - 1]} аккаунт? (y/n): ' + BLUE_COLOR)
             if code == 'y':
+                path = f'{api_names[profile_to_change - 1]}.session'
+                os.remove(path)
                 break
             elif code == 'n':
                 pass
@@ -83,12 +85,13 @@ def change_default():
     while True:
         api_id = input(GREEN_COLOR + f'[+] Введите api_id: ' + BLUE_COLOR)
         api_hash = input(GREEN_COLOR + f'[+] Введите api_hash : ' + BLUE_COLOR)
+         
         try:
             with Client(api_names[profile_to_change - 1], api_id, api_hash) as app:
                 app.send_message("me", "Инициализация бота!")
             break
         except:
-            print(RED_COLOR + "[-] Данные неверны!")
+            print(RED_COLOR + f"[-] [{api_names[profile_to_change - 1]}] Данные api_id и api_hash неверны или профиль заблокирован!")
 
     api_id_name = 'api_id_' + api_names[profile_to_change - 1]
     api_hash_name = 'api_hash_' + api_names[profile_to_change - 1]
@@ -128,7 +131,7 @@ def setup_default():
                     app.send_message("me", "Инициализация бота!")
                 break
             except:
-                print(RED_COLOR + "[-] Данные неверны!")
+                print(RED_COLOR + f"[-] [{api_name[i]}] Данные api_id и api_hash неверны или профиль заблокирован!")
 
 
 def setup_content():
@@ -136,7 +139,7 @@ def setup_content():
     code = ''
     while (code != 'y'):
         ad_msg = ''
-        print(GREEN_COLOR + '[+] Введите текст (Ctrl + D чтобы сохранить): ' + BLUE_COLOR)
+        print(GREEN_COLOR + '[+] Введите текст (Enter затем Ctrl + D чтобы сохранить): ' + BLUE_COLOR)
         while True:
             try:
                 line = input()

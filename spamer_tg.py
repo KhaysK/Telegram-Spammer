@@ -5,9 +5,8 @@ import tempfile
 from pyrogram.errors import PeerIdInvalid
 from pyrogram.errors import RPCError
 import sys
-import time
 import configparser
-from threading import Thread
+import asyncio
 
 RED_COLOR = "\033[1;31m"
 GREEN_COLOR = "\033[1;32m"
@@ -17,7 +16,8 @@ PURPLE_COLOR = "\033[1;35m"
 api_id = []
 api_hash = []
 api_names = []
-threads = []
+tasks = []
+event_l = None
 ad_msg = None
 ad_photo = None
 ad_video = None
@@ -40,7 +40,7 @@ def read_config():
         try :
             app = Client(name, api_id=tmp_api_id, api_hash=tmp_api_hash)
         except:
-            print(RED_COLOR + "[-] Данные api_id и api_hash неверны!")
+            print(RED_COLOR + f"[-] [{name}] Данные api_id и api_hash неверны или профиль заблокирован!")
             sys.exit()
 
     ad_msg = config['CONTENT']['ad_msg']
@@ -58,27 +58,6 @@ def read_config():
             sys.exit()
         else: print(RED_COLOR + '[!] Введеный неверный символ!')
 
-
-def send_telegram_msg(phone_num, add_msg, ad_photo, ad_video, app, profile):
-    temp_contact_name = tempfile.NamedTemporaryFile().name.split('\\')[-1]
-
-    try:
-        with app:
-            app.import_contacts([InputPhoneContact(phone=phone_num, first_name=temp_contact_name)])
-            app.send_message(phone_num, add_msg)
-            if (ad_photo != ''):
-                app.send_photo(phone_num, ad_photo)
-            if (ad_video != ''):
-                app.send_video(phone_num, ad_video)
-
-    except PeerIdInvalid:
-        return RED_COLOR + f"[-] Пользователь {phone_num} не найден!"
-
-    except RPCError:
-        return RED_COLOR + f"[-] Что-то странное произошло! ({phone_num})"
-
-    return GREEN_COLOR + f"[{profile}] {phone_num} - Отправлено!"
-
 def open_file(file_name):
     try:
         file = open(file_name, 'r')
@@ -90,24 +69,47 @@ def open_file(file_name):
 def easter_egg():
     if random.randint(0, 9) == 3:
         print(GREEN_COLOR + "\n[+] Ай ай ай, спамить не хорошо )")
-    else : print(GREEN_COLOR + "\n[+] Запускаем отправку!")
+    else: print(GREEN_COLOR + "\n[+] Запускаем отправку!")
 
 def divide_chunks(list, n):
     for i in range(0, len(list), n):
         yield list[i:i + n]
 
-def processing_send(phone_numbers, api_id, api_hash, api_names, profile_id):
+async def send_telegram_msg(phone_numbers, api_id, api_hash, api_names, profile_id, stop_factor):
     app = Client(api_names[profile_id], api_id[profile_id], api_hash[profile_id])
 
     counter = 1
     for phone_num in phone_numbers:
-        if counter % 10 == 0:
-            print(GREEN_COLOR + "\n[+] Пауза на 5 мин!")
-            time.sleep(300)
-            print(GREEN_COLOR + "\n[+] Бот возобновил работу!\n")
-        
-        print(send_telegram_msg(phone_num[:-1], ad_msg, ad_photo, ad_video, app, api_names[profile_id]))
-        time.sleep(15)
+        if counter % stop_factor == 0:
+            print(GREEN_COLOR + f"\n[+] Пауза на 5 мин! {api_names[profile_id]}")
+            await asyncio.sleep(300)
+            print(GREEN_COLOR + f"\n[+] Бот возобновил работу! {api_names[profile_id]}\n")
+
+        temp_contact_name = tempfile.NamedTemporaryFile().name.split('\\')[-1]
+
+        try:
+            async with app:
+                await app.import_contacts([InputPhoneContact(phone=phone_num, first_name=temp_contact_name)])
+                await app.send_message(phone_num, ad_msg)
+                if (ad_photo != ''):
+                    await app.send_photo(phone_num, ad_photo)
+                if (ad_video != ''):
+                    await app.send_video(phone_num, ad_video)
+
+        except PeerIdInvalid:
+            print(RED_COLOR + f"[{api_names[profile_id]}] [-] Пользователь {phone_num[:-1]} не найден!")
+            continue
+
+        except RPCError:
+            print(RED_COLOR + f"[{api_names[profile_id]}] [-] Что-то странное произошло! ({phone_num[:-1]})")
+            continue
+
+        print(GREEN_COLOR + f"[{api_names[profile_id]}] {phone_num[:-1]} - Отправлено!")
+
+        if (stop_factor > 5):
+            await asyncio.sleep(10 + stop_factor - 4)
+        else: 
+            await asyncio.sleep(10 + stop_factor)
         counter += 1
 
 def single_mode(api_name, phone_numbers, api_id, api_hash, api_names):
@@ -119,10 +121,10 @@ def single_mode(api_name, phone_numbers, api_id, api_hash, api_names):
         print(RED_COLOR + '[!] Введеный профиль не существует!')
         sys.exit()
 
-    processing_send(phone_numbers, api_id, api_hash, api_names, profile_id)
+    asyncio.run(send_telegram_msg(phone_numbers, api_id, api_hash, api_names, profile_id, 10))
 
 def threading_mode(phone_numbers, api_id, api_hash, api_names):
-    global threads
+    global tasks
 
     profile_num = len(api_names)
     chunk_size = int(len(phone_numbers) / profile_num)
@@ -130,10 +132,11 @@ def threading_mode(phone_numbers, api_id, api_hash, api_names):
     phone_num_list = list(divide_chunks(phone_numbers, chunk_size))
 
     for i in range(profile_num):
-        threads.append(Thread(target=processing_send, args=(phone_num_list[i], api_id, api_hash, api_names, i,)))
-    
-    for thread in threads:
-        thread.start()    
+        tasks.append(event_l.create_task(send_telegram_msg(phone_num_list[i], api_id, api_hash, api_names, i, 7 + i)))
+
+    wait_tasks = asyncio.wait(tasks)
+    event_l.run_until_complete(wait_tasks)
+    event_l.close()
 
 def start_spamming(api_name, phone_numbers, api_id, api_hash, api_names):
     if api_name == None:
@@ -141,8 +144,6 @@ def start_spamming(api_name, phone_numbers, api_id, api_hash, api_names):
     else:
         single_mode(api_name, phone_numbers, api_id, api_hash, api_names)
         
-    
-
 try:
     if len(sys.argv) < 2: 
         print(RED_COLOR + '[!] Укажите параметры!')
@@ -158,6 +159,7 @@ try:
 
     easter_egg()
     
+    event_l = asyncio.get_event_loop()
     start_spamming(api_name, phone_numbers, api_id, api_hash, api_names)
     
 except KeyboardInterrupt:
